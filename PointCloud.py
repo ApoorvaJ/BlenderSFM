@@ -27,14 +27,12 @@ class add_mesh_point_cloud(bpy.types.Operator):
         bundler.preparePhotos()
         bundler.matchFeatures()
         bundler.doBundleAdjustment()
-        # bundler.openResult()
 
         cmvs = osmcmvs.OsmCmvs(pluginPath, "C:\sfmoutput", 10)
         cmvs.doBundle2PMVS()
         cmvs.doCMVS()
 
         bpy.ops.import_mesh.ply(filepath="C:\sfmoutput\pmvs\models\option-0000.ply")
-        
 
     ##### EXECUTE #####
     def execute(self, context):

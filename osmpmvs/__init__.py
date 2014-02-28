@@ -98,7 +98,6 @@ class OsmPmvs():
           cpt+=1
         
         undistortTextFile.close()
-		
         logging.info("Finished!")
         
     def doPMVS(self):

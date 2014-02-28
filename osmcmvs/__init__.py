@@ -101,6 +101,7 @@ class OsmCmvs():
       #  for file in files:
       #    if "option-" in file:
       #      subprocess.call([self.pmvsExecutable, "./", file])
+      os.chdir("C:\\")
 
         
     def doPMVS(self, path, optionFile):

@@ -6,12 +6,6 @@ import logging
 import  tempfile, subprocess
 import sqlite3
 
-from PIL import Image
-from PIL.ExifTags import TAGS
-from io import BytesIO
-
-import defaults
-
 import matching
 from matching import *
 import features
@@ -22,12 +16,9 @@ def getPhotosFromDirectory(photoDir):
     return [f for f in os.listdir(photoDir) if os.path.isfile(os.path.join(photoDir, f)) and os.path.splitext(f)[1].lower()==".jpg"]
 
 distrPath = ""
-
+camerasDatabase = ""
 SCALE = 1.0
 bundlerListFileName = "list.txt"
-
-
-camerasDatabase = ""
 
 commandLineLongFlags = [
 "photos=",
@@ -73,29 +64,36 @@ class OsmBundler():
     featureExtractionNeeded = True
     
     photoScalingFactor = 0
+    bundlerOptions = (
+    "--match_table matches.init.txt\n",
+    "--output bundle.out\n",
+    "--output_all bundle_\n",
+    "--output_dir bundle\n",
+    "--variable_focal_length\n",
+    "--use_focal_estimate\n",
+    "--constrain_focal\n",
+    "--constrain_focal_weight 0.0001\n",
+    "--estimate_distortion\n",
+    "--run_bundle\n"
+    )
 
-    def __init__(self, pPluginDirectory, pImageDirectory, pWorkDirectory, pFeatureExtractor, pMaxPhotoDimension, pPhotoScalingFactor,):
-        for attr in dir(defaults):
-            if attr[0]!='_':
-                setattr(self, attr, getattr(defaults, attr))
+    def __init__(self, pPluginDirectory, pImageDirectory, pWorkDirectory, pFeatureExtractor, pMaxPhotoDimension, pPhotoScalingFactor):
 
         self.distrPath = pPluginDirectory;
-        self.camerasDatabase = os.path.join(self.distrPath, "osmbundler")
-        self.camerasDatabase = os.path.join(self.camerasDatabase, "cameras")
-        self.camerasDatabase = os.path.join(self.camerasDatabase, "cameras.sqlite")
+        self.camerasDatabase = self.distrPath + "\osmbundler\cameras\cameras.sqlite"
 
         # set parameters
         self.photosArg = pImageDirectory
         self.maxPhotoDimension = pMaxPhotoDimension
         self.photoScalingFactor = pPhotoScalingFactor
-        # self.matchingEngine = "bundler"
-        # self.featureExtractor = "siftvlfeat"
+        self.matchingEngine = "bundler"
+        self.featureExtractor = "siftvlfeat"
 
         # save current directory (i.e. from where RunBundler.py is called)
         self.currentDir = os.getcwd()
         # create a working directory
         self.workDir = pWorkDirectory
-        logging.info("Working directory created: "+self.workDir)
+        print("Working directory created: "+self.workDir)
         
         if not (os.path.isdir(self.photosArg) or os.path.isfile(self.photosArg)):
             raise Exception("'%s' is neither directory nor a file name" % self.photosArg)
@@ -150,161 +148,53 @@ class OsmBundler():
         if self.featuresListFile: self.featuresListFile.close()
         self.bundlerListFile.close()
         self.dbCursor.close()
-
-
-    def checkCamerasInDatabase(self):
-        # open connection to cameras database
-        conn = sqlite3.connect(self.camerasDatabase)
-        self.dbCursor = conn.cursor()
-    
-        if os.path.isdir(self.photosArg):
-            # directory with images
-            photos = getPhotosFromDirectory(self.photosArg)
-            for photo in photos:
-                self.checkCameraInDatabase( os.path.join(self.photosArg, photo) )
-        elif os.path.isfile(self.photosArg):
-            # a file with a list of images
-            photosFile = open(self.photosArg)
-            for photo in photosFile:
-                photo = photo.rstrip()
-                if os.path.isfile(photo):
-                    self.checkCameraInDatabase(photo)
-            photosFile.close()
-
-        conn.commit()
-        self.dbCursor.close()
-
-
-    def checkCameraInDatabase(self, photoPath):
-        photoHandle = Image.open(photoPath)
-        exif = self._getExif(photoHandle)
-        if 'Make' in exif and 'Model' in exif:
-            exifMake = exif['Make'].strip()
-            exifModel = exif['Model'].strip()
-            ccdWidth = self.getCcdWidthFromDatabase(exifMake, exifModel)
-            if ccdWidth==None:
-                while True:
-                    print ("Type CCD width in mm for the camera %s, %s. Press Enter to skip the camera." % (exifMake, exifModel))
-                    userInput = raw_input("CCD width in mm: ")
-                    # Enter key was pressed
-                    if not userInput:
-                        return
-                    try:
-                        ccdWidth = float(userInput)
-                        if ccdWidth==0:
-                            raise ZeroValueException
-                        self.dbCursor.execute("insert into cameras(make, model, ccd_width, source) values(?, ?, ?, 2)", (exifMake, exifModel, ccdWidth))
-                    except ZeroValueException:
-                        print ("\nCCD width can not be equal to zero.")
-                    except ValueError:
-                        print ("\nIncorrect value for the CCD width. Please enter CCD width in mm.")
-                    except:
-                        print ("\nCan not insert CCD width to the database.")
-                    else:
-                        print ("CCD width %s for the cameras %s,%s has been successively inserted to the database" % (ccdWidth, exifMake, exifModel))
-                        return
-        else:
-            print ("Camera is already inserted into the database")
-            return
                 
     def _preparePhoto(self, photoInfo):
         photo = photoInfo['basename']
         photoDir = photoInfo['dirname']
-        logging.info("\nProcessing photo '%s':" % photo)
+        print("\nProcessing photo '%s':" % photo)
         inputFileName = os.path.join(photoDir, photo)
-        photo = self._getPhotoCopyName(photo)
-        outputFileNameJpg = "%s.jpg" % os.path.join(self.workDir, photo)
-        # open photo
-        photoHandle = Image.open(inputFileName)
+        photo = photo[:-4]
+        outputFileName = os.path.join(self.workDir, photo)
 
-        # get EXIF information as a dictionary
-        exif = self._getExif(photoHandle)
-        self._calculateFocalDistance(photo, photoInfo, exif)
+        # get EXIF information
+        pilbinOutput = subprocess.check_output(
+            [self.distrPath + "\\software\\pilbin\\build\\exe.win32-3.3\\pilbin.exe", 
+            inputFileName, 
+            outputFileName]).decode("utf-8")
+        exifData = pilbinOutput.split(",")
+        exifMake = exifData[0]
+        exifModel = exifData[1]
+        exifFocalLength = float(exifData[2])
+        exifImageWidth = float(exifData[3])
+        exifImageHeight = float(exifData[4])
 
-        # resize photo if necessary
-        # self.photoScalingFactor takes precedence over self.maxPhotoDimension
-        # scale = 0
-        # if self.photoScalingFactor: scale = self.photoScalingFactor
-        # else:
-        #     maxDimension = photoHandle.size[0]
-        #     if photoHandle.size[1]>maxDimension: maxDimension = photoHandle.size[1]
-        #     if maxDimension > self.maxPhotoDimension: scale = float(self.maxPhotoDimension)/float(maxDimension)
-        # if scale > 0:
-        #     newWidth = int(scale * photoHandle.size[0])
-        #     newHeight = int(scale * photoHandle.size[1])
-        #     photoHandle = photoHandle.resize((newWidth, newHeight))
-        #     logging.info("\tCopy of the photo has been scaled down to %sx%s" % (newWidth,newHeight))
+        self._calculateFocalDistance(photo, photoInfo, exifMake, exifModel, exifFocalLength, exifImageWidth, exifImageHeight)
         
-        photoInfo['width'] = photoHandle.size[0]
-        photoInfo['height'] = photoHandle.size[1]
-        
-        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        bufferjpg = BytesIO()
-        photoHandle.save(bufferjpg, format = "jpeg")
-        open(outputFileNameJpg, "wb").write(bufferjpg.getvalue())
-        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        photoInfo['width'] = exifImageWidth
+        photoInfo['height'] = exifImageHeight
 
         # put photoInfo to self.photoDict
         self.photoDict[photo] = photoInfo
 
         if self.featureExtractionNeeded:
-            outputFileNamePgm = "%s.pgm" % outputFileNameJpg
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            # photoHandle.convert("L").save(outputFileNamePgm)
-            bufferpgm = BytesIO()
-            photoHandle.convert("L").save(bufferpgm, format = "ppm")
-            open(outputFileNamePgm, "wb").write(bufferpgm.getvalue())
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             self.extractFeatures(photo)
-            # os.remove(outputFileNamePgm)
-
-
-    def _getPhotoCopyName(self, photo):
-
-        # cut off the extension
-        photo = photo[:-4]
-
-        #TODO: REMOVE THIS!
-        return photo
-
-        # replace spaces in the file name
-        photo = photo.replace(' ', '_')
-        # find a unique name
-        suffix = 1
-        while photo in self.photoDict:
-            photo = "%s_%s" % (photo, suffix)
-            suffix = suffix + 1
-        return photo
-
-
-    def _getExif(self, photoHandle):
-        exif = {}
-        info = photoHandle._getexif()
-        if info:
-            for attr, value in info.items():
-                decodedAttr = TAGS.get(attr, attr)
-                if decodedAttr in exifAttrs: exif[decodedAttr] = value
-        if 'FocalLength' in exif: exif['FocalLength'] = float(exif['FocalLength'][0])/float(exif['FocalLength'][1])
-        return exif
     
-    def _calculateFocalDistance(self, photo, photoInfo, exif):
+    def _calculateFocalDistance(self, photo, photoInfo, exifMake, exifModel, exifFocalLength, exifImageWidth, exifImageHeight):
         hasFocal = False
-        if 'Make' in exif and 'Model' in exif:
+        if exifMake and exifModel:
             # check if we have camera entry in the database
-            ccdWidth = self.getCcdWidthFromDatabase(exif['Make'].strip(),exif['Model'].strip())
+            ccdWidth = self.getCcdWidthFromDatabase(exifMake.strip(),exifModel.strip())
             if ccdWidth:
-                if 'FocalLength' in exif and 'ExifImageWidth' in exif and 'ExifImageHeight' in exif:
-                    focalLength = float(exif['FocalLength'])
-                    width = float(exif['ExifImageWidth'])
-                    height = float(exif['ExifImageHeight'])
-                    if focalLength>0 and width>0 and height>0:
-                        if width<height: width = height
-                        focalPixels = width * (focalLength / ccdWidth[0])
-                        hasFocal = True
-                        self.bundlerListFile.write("%s.jpg 0 %s\n" % (photo,SCALE*focalPixels))
-            else: logging.info("\tEntry for the camera '%s', '%s' does not exist in the camera database" % (exif['Make'], exif['Model']))
+                if exifFocalLength>0 and exifImageWidth>0 and exifImageHeight>0:
+                    if exifImageWidth<exifImageHeight: exifImageWidth = exifImageHeight
+                    focalPixels = exifImageWidth * (exifFocalLength / ccdWidth[0])
+                    hasFocal = True
+                    print("FOCAL LENGTH: ", exifFocalLength, ", CCD: ", ccdWidth)
+                    self.bundlerListFile.write("%s.jpg 0 %s\n" % (photo,SCALE*focalPixels))
+            else: print("\tEntry for the camera '%s', '%s' does not exist in the camera database" % (exif['Make'], exif['Model']))
         if not hasFocal:
-            logging.info("\tCan't estimate focal length in pixels for the photo '%s'" % os.path.join(photoInfo['dirname'],photoInfo['basename']))
+            print("\tCan't estimate focal length in pixels for the photo '%s'" % os.path.join(photoInfo['dirname'],photoInfo['basename']))
             self.bundlerListFile.writelines("%s.jpg\n" % photo)
 
 
@@ -340,13 +230,13 @@ class OsmBundler():
     
     def doBundleAdjustment(self):
         # just run Bundler here
-        logging.info("\nPerforming bundle adjustment...")
+        print("\nPerforming bundle adjustment...")
         os.chdir(self.workDir)
         os.mkdir("bundle")
         
         # create options.txt
         optionsFile = open("options.txt", "w")
-        optionsFile.writelines(defaults.bundlerOptions)
+        optionsFile.writelines(self.bundlerOptions)
         optionsFile.close()
 
         bundlerExecutable = ''
@@ -357,7 +247,7 @@ class OsmBundler():
         subprocess.call([bundlerExecutable, "list.txt", "--options_file", "options.txt"], **dict(stdout=bundlerOutputFile))
         bundlerOutputFile.close()
         os.chdir(self.currentDir)
-        logging.info("Finished! See the results in the '%s' directory" % self.workDir)
+        print("Finished! See the results in the '%s' directory" % self.workDir)
     
     
     def openResult(self):
