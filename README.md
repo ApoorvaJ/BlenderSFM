@@ -1,6 +1,9 @@
+<p align="center">
+  <img src="http://thegamecoder.com/wp-content/uploads/2014/02/BlenderSFMCircle.png" />
+</p>
+
 BlenderSFM
 ==========
-
 BlenderSFM is an add-on for Blender that provides an easy way to perform Structure From Motion. 
 
 The plugin takes as input, multiple photographs of an object or scene taken from different angles. It then generates 3D geometry by extracting depth information from these photographs.
