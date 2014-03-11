@@ -76,7 +76,7 @@ class OsmBundler():
     "--estimate_distortion\n",
     "--run_bundle\n"
     )
-
+# ==================================================================================================
     def __init__(self, pPluginDirectory, pImageDirectory, pWorkDirectory, pFeatureExtractor, pMaxPhotoDimension, pPhotoScalingFactor):
 
         self.distrPath = pPluginDirectory;
@@ -104,52 +104,22 @@ class OsmBundler():
         # initialize feature extractor based on command line arguments
         self.initFeatureExtractor()
 
-    def preparePhotos(self, *kargs, **kwargs):
-        # open each photo, resize, convert to pgm, copy it to self.workDir and calculate focal distance
-        # conversion to pgm is performed by PIL library
-        # EXIF reading is performed by PIL library
-        
+# ==================================================================================================
+    def openFiles(self):        
+        # open list of photos with focal distances for bundler input
+        self.bundlerListFile = open(os.path.join(self.workDir,bundlerListFileName), "w")
+        self.featuresListFile = open(os.path.join(self.workDir,self.matchingEngine.featuresListFileName), "w")
+
+# ==================================================================================================
+    def closeFiles(self):
+        if self.featuresListFile: self.featuresListFile.close()
+        self.bundlerListFile.close()
+           
+    def _preparePhoto(self, photoInfo):
         # open connection to cameras database
         conn = sqlite3.connect(self.camerasDatabase)
         self.dbCursor = conn.cursor()
-        
-        # open list of photos with focal distances for bundler input
-        self.bundlerListFile = open(os.path.join(self.workDir,bundlerListFileName), "w")
 
-        # check if need to do feature extraction
-        if ('featureExtractionNeeded' in kwargs and kwargs['featureExtractionNeeded']==False) or self.matchingEngine.featureExtractionNeeded==False:
-            self.featureExtractionNeeded = False
-        elif self.matchingEngine.featureExtractionNeeded:
-            # open list of files with extracted features
-            self.featuresListFile = open(os.path.join(self.workDir,self.matchingEngine.featuresListFileName), "w")
-
-        if os.path.isdir(self.photosArg):
-            # directory with images
-            photos = getPhotosFromDirectory(self.photosArg)
-            if len(photos)<3: print ("The directory with images should contain at least 3 .jpg photos")
-            for photo in photos:
-                photoInfo = dict(dirname=self.photosArg, basename=photo)
-                self._preparePhoto(photoInfo)
-        elif os.path.isfile(self.photosArg):
-            # a file with a list of images
-            photosFile = open(self.photosArg)
-            # an auxiliary dictionary to eliminate duplicated photos
-            _photoDict = {}
-            for photo in photosFile:
-                photo = photo.rstrip()
-                if os.path.isfile(photo):
-                    if not photo in _photoDict:
-                        _photoDict[photo] = True
-                        dirname,basename = os.path.split(photo)
-                        photoInfo = dict(dirname=dirname, basename=basename)
-                        self._preparePhoto(photoInfo)
-            photosFile.close()
-
-        if self.featuresListFile: self.featuresListFile.close()
-        self.bundlerListFile.close()
-        self.dbCursor.close()
-                
-    def _preparePhoto(self, photoInfo):
         photo = photoInfo['basename']
         photoDir = photoInfo['dirname']
         print("\nProcessing photo '%s':" % photo)
@@ -179,6 +149,8 @@ class OsmBundler():
 
         if self.featureExtractionNeeded:
             self.extractFeatures(photo)
+
+        self.dbCursor.close()
     
     def _calculateFocalDistance(self, photo, photoInfo, exifMake, exifModel, exifFocalLength, exifImageWidth, exifImageHeight):
         hasFocal = False
