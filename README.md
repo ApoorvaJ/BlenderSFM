@@ -18,9 +18,7 @@ Notes
 The project is currently at a very early stage in development. I will be adding features and refactoring the code in the coming weeks.
 
 These are the main areas I will be focusing on:
-- Developing a GUI. Currently the add-on takes photos from C:\sfminput and writes to C:\sfmoutput. Progress is only seen in the console window.
 - Refactoring the code.
-- Adding support for Linux. Currently, the code has only been tested on 32-bit Windows.
 - Support for adding camera specs.
 
 Installation and Execution
