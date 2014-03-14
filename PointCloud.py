@@ -1,11 +1,11 @@
 import os
 import sys
+import tempfile
+import shutil
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import bpy
 import subprocess
 import threading
-import queue
-from time import sleep
 import osmbundler
 import osmcmvs
 
@@ -27,65 +27,57 @@ bpy.types.Scene.currentStatus = StringProperty(
     )
 
 # ==================================================================================================
-# The menu option Add->Mesh->Point Cloud
+# The Start SFM button operator
 class StartSFMOperator(bpy.types.Operator):
     bl_idname = "sfm.start"
     bl_label = "Start SFM"
     bl_options = {'UNDO'}
     bl_description = "Start the Structure From Motion process to generate the point cloud"
 
-    params = bpy.props.StringProperty() # defining the property
-
-    status = " ";
-
     def execute(self, context):
-        q = queue.Queue();
-        thr = threading.Thread(target=self.foo, args=(context,q))
-        thr.start()
-        while (True):
-            if not q.empty():
-                message = q.get()
-                context.scene.currentStatus = message
-                self.__class__.status = context.scene.currentStatus
-                self.report({'INFO'}, str(self.__class__.status))
-                print(context.scene.currentStatus)
-                if (message=="DONE"):
-                    break
-            sleep(1)
-        
-        return {'FINISHED'}
 
-    def foo(self, context, q):
         pluginPath = os.path.dirname(os.path.realpath(__file__))
         absolutePhotoPath = os.path.abspath(bpy.path.abspath(context.scene.photoPath))
+        outputPath = tempfile.mkdtemp(prefix="blendersfm-")
+        thr = threading.Thread(target=self.doSFM, args=(context, pluginPath, absolutePhotoPath, outputPath))
+        thr.start()
 
-        print("params: " + self.params + absolutePhotoPath)
+        return {'FINISHED'}
 
+
+    def doSFM(self, context, pluginPath, absolutePhotoPath, outputPath):
+        print("Starting Structure From Motion")
         photos = osmbundler.getPhotosFromDirectory(absolutePhotoPath)
         numberOfPhotos = photos.__len__()
 
-        bundler = osmbundler.OsmBundler(pluginPath, absolutePhotoPath, "C:\sfmoutput", "siftvlfeat", 1200, 1)
+        # Initialize Bundler
+        bundler = osmbundler.OsmBundler(pluginPath, absolutePhotoPath, outputPath, "siftvlfeat", 1200, 1)
+
+        # Prepare photos
         bundler.openFiles()
-
         for i in range(0, numberOfPhotos):
-            # context.scene.currentStatus = "Processing photo {0} of {1}".format(i+1,numberOfPhotos)
-            q.put("Processing photo {0} of {1}".format(i+1,numberOfPhotos))
-            print("PUT")
-            # self.report({'INFO'}, str(self.__class__.status))
-
-
+            print("\n\nProcessing photo {0} of {1}...".format(i+1,numberOfPhotos))
             photoInfo = dict(dirname=absolutePhotoPath, basename=photos[i])
             bundler._preparePhoto(photoInfo)
-            # thr1 = threading.Thread(target=bundler._preparePhoto, args=(photoInfo,))
-            # thr1.start()
-            # thr1.join()
-
         bundler.closeFiles()
+
+        # Match features and do bundle adjustment
+        print("\n\nMatching features...")
+        bundler.matchFeatures()
+        bundler.doBundleAdjustment()
+
+        # Multi-view stereo
+        cmvs = osmcmvs.OsmCmvs(pluginPath, outputPath, 10)
+        cmvs.doBundle2PMVS()
+        cmvs.doCMVS()
+        bpy.ops.import_mesh.ply(filepath=outputPath + "\\pmvs\\models\\option-0000.ply")
+
         os.chdir("C:\\")
-        print("DONE")
-        q.put("DONE")
+        print(outputPath)
+        print("\nStructure From Motion finished.")
 
-
+# ==================================================================================================
+# The Panel
 class OBJECT_PT_Panel(bpy.types.Panel):
     bl_idname = "mesh.point_cloud_add"
     bl_label = "Add Point Cloud"
@@ -98,4 +90,6 @@ class OBJECT_PT_Panel(bpy.types.Panel):
         layout.prop(context.scene, "photoPath")
         layout.operator("sfm.start")
         layout.label(context.scene.currentStatus)
-        layout.label(StartSFMOperator.status)
+        layout.label("This will take some time to process.")
+        layout.label("For progress details, view the console.")
+        layout.label("(Window -> Toggle System Console)")
