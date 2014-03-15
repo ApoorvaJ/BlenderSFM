@@ -5,6 +5,7 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import logging
 import  tempfile, subprocess
 import sqlite3
+import csv
 
 import matching
 from matching import *
@@ -20,20 +21,6 @@ camerasDatabase = ""
 SCALE = 1.0
 bundlerListFileName = "list.txt"
 
-commandLineLongFlags = [
-"photos=",
-"maxPhotoDimension=",
-"featureExtractor=",
-"photoScalingFactor=",
-"checkCameraDatabase"
-]
-exifAttrs = set(["Model", "Make", "ExifImageWidth", "ExifImageHeight", "FocalLength"])
-
-class ZeroValueException(Exception):
-    """Raised if zero value has been encountered
-    Used to process user input
-    """
-
 
 class OsmBundler():
 
@@ -47,9 +34,6 @@ class OsmBundler():
     featureExtractor = None
     
     matchingEngine = None
-    
-    # sqlite cursor
-    dbCursor = None
     
     # list of photos with focal distances for bundler input
     bundlerListFile = None
@@ -116,9 +100,6 @@ class OsmBundler():
         self.bundlerListFile.close()
            
     def _preparePhoto(self, photoInfo):
-        # open connection to cameras database
-        conn = sqlite3.connect(self.camerasDatabase)
-        self.dbCursor = conn.cursor()
 
         photo = photoInfo['basename']
         photoDir = photoInfo['dirname']
@@ -127,7 +108,7 @@ class OsmBundler():
         photo = photo[:-4]
         outputFileName = os.path.join(self.workDir, photo)
 
-        # get EXIF information
+        # get EXIF information and produce PGM output file
         pilbinOutput = subprocess.check_output(
             [self.distrPath + "\\software\\pilbin\\build\\exe.win32-3.3\\pilbin.exe", 
             inputFileName, 
@@ -150,17 +131,17 @@ class OsmBundler():
         if self.featureExtractionNeeded:
             self.extractFeatures(photo)
 
-        self.dbCursor.close()
     
     def _calculateFocalDistance(self, photo, photoInfo, exifMake, exifModel, exifFocalLength, exifImageWidth, exifImageHeight):
         hasFocal = False
         if exifMake and exifModel:
             # check if we have camera entry in the database
-            ccdWidth = self.getCcdWidthFromDatabase(exifMake.strip(),exifModel.strip())
+            ccdWidth = getCcdWidthFromDatabase(exifMake.strip(),exifModel.strip(), self.distrPath)
+            print(ccdWidth)
             if ccdWidth:
                 if exifFocalLength>0 and exifImageWidth>0 and exifImageHeight>0:
                     if exifImageWidth<exifImageHeight: exifImageWidth = exifImageHeight
-                    focalPixels = exifImageWidth * (exifFocalLength / ccdWidth[0])
+                    focalPixels = exifImageWidth * (exifFocalLength / ccdWidth)
                     hasFocal = True
                     print("FOCAL LENGTH: ", exifFocalLength, ", CCD: ", ccdWidth)
                     self.bundlerListFile.write("%s.jpg 0 %s\n" % (photo,SCALE*focalPixels))
@@ -230,13 +211,18 @@ class OsmBundler():
         else: 
             print ("Thanks")
 
-    # a helper function to get CCD width from sqlite database
-    def getCcdWidthFromDatabase(self, exifMake, exifModel):
-        self.dbCursor.execute("select ccd_width from cameras where make=? and model=?", (exifMake, exifModel))
-        return self.dbCursor.fetchone()
-
-
 # service function: get path of an executable (.exe suffix is added if we are on Windows)
 def getExecPath(dir, fileName):
     if sys.platform == "win32": fileName = "%s.exe" % fileName
     return os.path.join(dir, fileName)
+
+# a helper function to get CCD width from sqlite database
+def getCcdWidthFromDatabase(exifMake, exifModel, pluginPath):
+
+    cameraFilePath = pluginPath + "\osmbundler\cameras\cameras.txt"
+    cameraFile  = open(cameraFilePath, "rt")
+    reader = csv.reader(cameraFile)
+    for row in reader:
+        if (row[0] == exifMake and row[1] == exifModel):
+            return float(row[2])
+    cameraFile.close()

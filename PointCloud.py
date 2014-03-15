@@ -34,20 +34,46 @@ class StartSFMOperator(bpy.types.Operator):
     bl_options = {'UNDO'}
     bl_description = "Start the Structure From Motion process to generate the point cloud"
 
+
     def execute(self, context):
 
         pluginPath = os.path.dirname(os.path.realpath(__file__))
         absolutePhotoPath = os.path.abspath(bpy.path.abspath(context.scene.photoPath))
+        photos = osmbundler.getPhotosFromDirectory(absolutePhotoPath)
+
+        self.checkForCameraProfile(context, pluginPath, absolutePhotoPath, photos)
         outputPath = tempfile.mkdtemp(prefix="blendersfm-")
-        thr = threading.Thread(target=self.doSFM, args=(context, pluginPath, absolutePhotoPath, outputPath))
+        thr = threading.Thread(target=self.doSFM, args=(context, pluginPath, absolutePhotoPath, outputPath, photos))
         thr.start()
 
         return {'FINISHED'}
 
 
-    def doSFM(self, context, pluginPath, absolutePhotoPath, outputPath):
+    def checkForCameraProfile(self, context, pluginPath, absolutePhotoPath, photos):
+
+        # Get the exif data from the first photo
+        firstPhoto = photos[0]
+        inputFileName = os.path.join(absolutePhotoPath, firstPhoto)
+
+        pilbinOutput = subprocess.check_output(
+            [pluginPath + "\\software\\pilbin\\build\\exe.win32-3.3\\pilbin.exe", 
+            inputFileName, 
+            "C:\\abc"]).decode("utf-8")
+        exifData = pilbinOutput.split(",")
+        exifMake = exifData[0]
+        exifModel = exifData[1]
+        exifFocalLength = exifData[2]
+
+        if (not exifFocalLength):
+            context.scene.currentStatus = "Warning: Focal length information not found in the photo"
+            
+        if (not osmbundler.getCcdWidthFromDatabase(exifMake, exifModel, pluginPath)):
+            context.scene.currentStatus = "Warning: Camera CCD width not found in {Plugin Path}\osmbundler\cameras\cameras.txt"
+
+
+    def doSFM(self, context, pluginPath, absolutePhotoPath, outputPath, photos):
+
         print("Starting Structure From Motion")
-        photos = osmbundler.getPhotosFromDirectory(absolutePhotoPath)
         numberOfPhotos = photos.__len__()
 
         # Initialize Bundler
@@ -75,6 +101,8 @@ class StartSFMOperator(bpy.types.Operator):
         os.chdir("C:\\")
         print(outputPath)
         print("\nStructure From Motion finished.")
+
+
 
 # ==================================================================================================
 # The Panel
