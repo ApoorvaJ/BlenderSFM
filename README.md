@@ -12,15 +12,6 @@ The code behind this plugin is adapted from the Python Photogrammetry Toolkit.
 
 The main goal behind this project is ease of installation and ease of use. This is why, I am integrating the existing SFM codebase with Blender.
 
-Notes
------
-
-The project is currently at a very early stage in development. I will be adding features and refactoring the code in the coming weeks.
-
-These are the main areas I will be focusing on:
-- Refactoring the code.
-- Support for adding camera specs.
-
 Installation and Execution
 --------------------------
 
