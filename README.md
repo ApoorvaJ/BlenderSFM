@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="http://thegamecoder.com/wp-content/uploads/2014/02/BlenderSFMCircle.png" />
+  <img src="http://apoorvaj.io/assets/BlenderSFM.jpg" />
 </p>
 
 BlenderSFM
